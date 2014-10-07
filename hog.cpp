@@ -25,19 +25,13 @@ Func GradientY(Func input) {
   return grady;
 }
 
-Func Abs(Func input) {
-  Func abs("abs");
-  abs(x, y, c) = hypot(input(x, y, c)[0], input(x, y, c)[1]);
-  return abs;
-}
-
-Expr BinLookup(Tuple p, Param<uint8_t> nBins) {
-  return cast<int8_t>(clamp(floor((atan2(p[1], p[0]) + pi) * nBins / (2 * pi)), 0, nBins-1));
+Expr BinLookup(Expr x, Expr y, Param<uint8_t> nBins) {
+  return cast<int8_t>(clamp(floor((atan2(y, x) + pi) * nBins / (2 * pi)), 0, nBins - 1));
 }
 
 Func Bin(Func gradx, Func grady, Func lut) {
   Func bins("bins");
-  bins(x, y, c) = lut(gradx(x, y, c)+256, grady(x,y,c)+256);
+  bins(x, y, c) = lut(gradx(x, y, c) + 256, grady(x,y,c) + 256);
   return bins;
 }
 
@@ -45,7 +39,7 @@ Func Atan2Lut(Param<uint8_t> nBins, Param<uint16_t> central) {
   Func lut("lut");
   Expr xx = x - 256;
   Expr yy = y - 256;
-  lut(x, y) = select(xx*xx + yy*yy > central, BinLookup(Tuple(xx, yy), nBins)+1, 0);
+  lut(x, y) = select(xx*xx + yy*yy > central, BinLookup(xx, yy, nBins) + 1, 0);
   return lut;
 }
 
@@ -65,8 +59,10 @@ Func Proj(Func f, Param<uint8_t> nBins) {
   return proj;
 }
 
+bool have_opencl();
+
 int main(int argc, char** argv) {
-  using namespace Halide;
+
   if (argc < 3 || argc > 5) {
     cerr << "USAGE:" << endl
          << "\t" << argv[0] << " INPUT OUTPUT" << endl;
@@ -95,9 +91,15 @@ int main(int argc, char** argv) {
   Func proj = Proj(cell, nBins);
   clock_t c1 = clock();
 
-  binned.compute_root();
-  binned.unroll(c);
-  binned.vectorize(y, cellSize);
+  if (have_opencl() && false) {
+    //TODO: Use opencl features
+	}
+	else {
+    binned.compute_root();
+    binned.unroll(c);
+    binned.vectorize(y, cellSize);
+  }
+
   proj.bound(c, 0, 3).unroll(c);
   proj.bound(x, 0, (img.width() - 2)/cellSize);
   proj.bound(y, 0, (img.height() - 2)/cellSize);
@@ -113,4 +115,24 @@ int main(int argc, char** argv) {
     cout << "run      " << (c4 - c3) << endl;
   }
   save(output, argv[2]);
+}
+
+
+
+// A helper function to check if OpenCL seems to exist on this machine.
+
+#ifdef _WIN32git
+#include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
+
+bool have_opencl() {
+#ifdef _WIN32
+    return LoadLibrary("opengl.dll") != NULL;
+#elif __APPLE__
+    return dlopen("/System/Library/Frameworks/OpenCL.framework/Versions/Current/OpenCL", RTLD_LAZY) != NULL;
+#else
+    return dlopen("libOpenCL.so", RTLD_LAZY) != NULL;
+#endif
 }
